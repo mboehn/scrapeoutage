@@ -1,36 +1,64 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
-import requests
-import re
+## Set to True if testing and there only is planned outages:
+DO_PLANNED=False
 
 ## This is a list of the places you want to know about
 myplaces = [ u'Tjøme', u'Tønsberg', u'Svelvik', u'Sande', u'Hof', u'Holmestrand', u'Horten', u'Re', u'Andebu', u'Lardal', u'Sandefjord', u'Nøtterøy', u'Larvik', u'Stokke']
 
-## URL to dmsweboutagemap
-r = requests.get('http://powercompany.example/dmsweboutagemap/Fetch.ashx?markup=0&trusted=check')
+## URL to outagemap
+url = 'http://powercompany.example/outagemap/geoserver-api/content/outageTableData.json'
 
-lines = r.text.splitlines()
 
-answer = None
-total = None
+#####################################
 
-for line in lines:
-	a = re.compile ("^outage.add.*")
-	if a.match(line):
-		ref = line.split (',')
-		place = ref[1].replace("'", "")
-		faults = ref[2]
-		planned = ref[3]
-		customers = ref[4].split(')')[0]
+import requests
+import json
+import sys
 
-		if any (place in s for s in myplaces):
-			if customers != '0':
-				if answer:
-					total += int(customers)
-					answer += ", " + place + "[" + faults + "/" + customers + "]"
-				else:
-					total = int(customers)
-					answer = place + "[" + faults + "/" + customers + "]"
+r = requests.get(url)
+r.encoding = 'utf_8'
 
-print answer + " (" + str(total) + ")"
+data = json.loads(r.text)
+
+faultanswer = None
+faulttotal = None
+plananswer = None
+plantotal = None
+
+for mainarea in data['mainAreas']:
+	area = mainarea['area']
+
+	if not area in myplaces:
+		continue
+
+	faults = mainarea['faultrunning']['nr']
+	faultsaffect = mainarea['faultrunning']['customers']
+	plans = mainarea['planrunning']['nr']
+	plansaffect = mainarea['planrunning']['customers']
+
+	if int(faults):
+		if faultanswer:
+			faultanswer += ", {} [{}/{}]".format(area, faults, faultsaffect)
+			faulttotal += int(faultsaffect)
+		else:
+			faultanswer = "{} [{}/{}]".format(area, faults, faultsaffect)
+			faulttotal = int(faultsaffect)
+
+	if int(plans) and DO_PLANNED:
+		if plananswer:
+			plananswer += ", {} [{}/{}]".format(area, plans, plansaffect)
+			plantotal += int(plansaffect)
+		else:
+			plananswer = "Planned: {} [{}/{}]".format(area, plans, plansaffect)
+			plantotal = int(plansaffect)
+
+if (not faultanswer and not plananswer):
+	sys.exit(0)
+elif faultanswer:
+	print(faultanswer)
+	sys.exit(100)
+elif plananswer:
+	print(plananswer)
+	sys.exit(101)
